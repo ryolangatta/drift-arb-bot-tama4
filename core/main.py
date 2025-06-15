@@ -1,6 +1,6 @@
 """
 Production-ready Drift-Binance Arbitrage Bot
-Entry point for the application
+Entry point for the application with Discord notifications
 """
 import asyncio
 import sys
@@ -16,9 +16,10 @@ from core.logger import logger
 from modules.price_monitor import PriceMonitor
 from modules.arbitrage import ArbitrageDetector
 from modules.paper_trader import PaperTrader
+from modules.discord_notifier import DiscordNotifier
 
 class DriftBinanceArbBot:
-    """Main arbitrage bot class"""
+    """Main arbitrage bot class with Discord integration"""
     
     def __init__(self):
         self.bot_config = get_config()
@@ -26,33 +27,48 @@ class DriftBinanceArbBot:
         self.price_monitor = PriceMonitor(self.config)
         self.arb_detector = ArbitrageDetector(self.config)
         self.paper_trader = None
+        self.discord = None
         self.running = True
+        self.opportunities_count = 0
+        self.last_notification_time = {}
         
         # Initialize paper trader if in simulation mode
         if self.bot_config.mode in ['SIMULATION', 'PAPER_TRADING']:
             self.paper_trader = PaperTrader(self.config)
             
+        # Initialize Discord notifier
+        if self.bot_config.discord_webhook_url:
+            self.discord = DiscordNotifier(self.bot_config.discord_webhook_url)
+            
     def convert_config(self) -> Dict:
         """Convert BotConfig to dict format expected by modules"""
         return {
             'mode': self.bot_config.mode.value,
-            'min_spread_percent': self.bot_config.spread_threshold * 100,  # Convert to percentage
+            'min_spread_percent': self.bot_config.spread_threshold * 100,
             'trade_size_usdt': self.bot_config.trade_size_usdc,
-            'initial_balance': 10000,  # Default for paper trading
+            'initial_balance': 10000,
             'max_open_trades': self.bot_config.max_open_positions,
-            'min_profit_usdt': 1.0,  # Default minimum profit
+            'min_profit_usdt': 1.0,
             'discord_webhook': self.bot_config.discord_webhook_url,
             'pairs': self.get_trading_pairs()
         }
         
     def get_trading_pairs(self) -> list:
         """Get trading pairs configuration"""
-        # For now, use default pairs. Can be extended to read from env
         return [
             {"spot_symbol": "SOLUSDT", "perp_symbol": "SOLPERP"},
-            # {"spot_symbol": "BTCUSDT", "perp_symbol": "BTCPERP"},
-            # {"spot_symbol": "ETHUSDT", "perp_symbol": "ETHPERP"},
         ]
+        
+    def should_notify(self, event_type: str, cooldown_seconds: int = 60) -> bool:
+        """Check if we should send a notification (with cooldown)"""
+        import time
+        current_time = time.time()
+        last_time = self.last_notification_time.get(event_type, 0)
+        
+        if current_time - last_time > cooldown_seconds:
+            self.last_notification_time[event_type] = current_time
+            return True
+        return False
             
     async def price_callback(self, spot_symbol: str, perp_symbol: str, 
                            spot_price: float, perp_price: float):
@@ -64,16 +80,26 @@ class DriftBinanceArbBot:
         )
         
         if opportunity:
+            self.opportunities_count += 1
+            
             logger.success(
                 f"🎯 Arbitrage on {spot_symbol}: "
                 f"Spread {opportunity.spread_percent:.3f}% = "
                 f"${opportunity.potential_profit_usdt:.2f} profit"
             )
             
+            # Send Discord notification (with cooldown to avoid spam)
+            if self.discord and self.should_notify('opportunity', cooldown_seconds=300):  # 5 min cooldown
+                await self.discord.send_opportunity_alert(opportunity.to_dict())
+            
             # Execute paper trade if enabled
             if self.paper_trader and len(self.paper_trader.open_trades) < self.config['max_open_trades']:
                 if opportunity.potential_profit_usdt >= self.config['min_profit_usdt']:
-                    self.paper_trader.execute_trade(opportunity.to_dict())
+                    trade = self.paper_trader.execute_trade(opportunity.to_dict())
+                    
+                    # Notify about trade execution
+                    if trade and self.discord:
+                        await self.discord.send_trade_notification(trade.__dict__, "opened")
                     
     async def run(self):
         """Main bot loop"""
@@ -85,6 +111,7 @@ class DriftBinanceArbBot:
         logger.info(f"Trade Size: ${self.bot_config.trade_size_usdc}")
         logger.info(f"Max Positions: {self.bot_config.max_open_positions}")
         logger.info(f"Monitoring {len(self.config['pairs'])} pairs")
+        logger.info(f"Discord: {'Enabled' if self.discord else 'Disabled'}")
         
         if self.paper_trader:
             logger.info(f"Paper Trading Balance: ${self.paper_trader.balance:.2f}")
@@ -95,11 +122,18 @@ class DriftBinanceArbBot:
             # Initialize connections
             await self.price_monitor.initialize()
             
+            # Send startup notification
+            if self.discord:
+                await self.discord.send_startup_notification(self.config)
+                logger.info("Discord startup notification sent")
+            
             # Start monitoring
             await self.price_monitor.start(self.config['pairs'], self.price_callback)
             
         except Exception as e:
             logger.error(f"Bot error: {e}")
+            if self.discord:
+                await self.discord.send_message(f"❌ Bot error: {str(e)}")
         finally:
             await self.shutdown()
             
@@ -115,11 +149,23 @@ class DriftBinanceArbBot:
             stats = self.paper_trader.get_performance_summary()
             logger.info("=" * 60)
             logger.info("📊 SESSION SUMMARY")
+            logger.info(f"Opportunities Found: {self.opportunities_count}")
             logger.info(f"Total Trades: {stats['total_trades']}")
             logger.info(f"P&L: ${stats['total_profit']:.2f}")
             logger.info(f"ROI: {stats['roi']:.2f}%")
             logger.info(f"Final Balance: ${stats['current_balance']:.2f}")
             logger.info("=" * 60)
+            
+            # Send summary to Discord
+            if self.discord:
+                await self.discord.send_summary(stats)
+                await self.discord.send_message(
+                    f"🛑 Bot stopped. Found {self.opportunities_count} opportunities."
+                )
+                
+        # Close Discord session
+        if self.discord:
+            await self.discord.close()
             
         logger.info("Shutdown complete")
 

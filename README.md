@@ -1,2 +1,3 @@
-# drift-arb-bot-tama4
-Production-grade arbitrage bot for Drift (Solana) and Binance with full
+# Drift-Binance Arbitrage Bot Pro
+
+Production-grade arbitrage bot with backtesting capabilities.

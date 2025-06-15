@@ -1,0 +1,30 @@
+services:
+  # Background worker for the arbitrage bot
+  - type: worker
+    name: drift-binance-arb-bot
+    runtime: python
+    region: oregon # or singapore, ohio, frankfurt
+    plan: free # or starter ($7/month) for production
+    
+    # Build configuration
+    buildCommand: ./build.sh
+    startCommand: python core/main.py
+    
+    # Environment variables (set in Render dashboard)
+    envVars:
+      - key: MODE
+        value: SIMULATION
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SPREAD_THRESHOLD
+        value: "0.003"
+      - key: TRADE_SIZE_USDC
+        value: "100"
+      - key: MAX_OPEN_POSITIONS
+        value: "2"
+      - key: DISCORD_WEBHOOK_URL
+        sync: false # Set this in Render dashboard for security
+      - key: PYTHONUNBUFFERED
+        value: "1" # Ensures logs appear in real-time
+      - key: TZ
+        value: UTC # Timezone

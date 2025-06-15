@@ -89,7 +89,7 @@ class DriftBinanceArbBot:
             )
             
             # Send Discord notification (with cooldown to avoid spam)
-            if self.discord and self.should_notify('opportunity', cooldown_seconds=300):  # 5 min cooldown
+            if self.discord and self.should_notify('opportunity', cooldown_seconds=60):  # 5 min cooldown
                 await self.discord.send_opportunity_alert(opportunity.to_dict())
             
             # Execute paper trade if enabled

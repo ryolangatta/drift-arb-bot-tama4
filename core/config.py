@@ -128,8 +128,8 @@ def load_config() -> BotConfig:
         cooldown_duration_min=int(os.getenv("COOLDOWN_DURATION_MIN", "30")),
         backtest_timeframe=os.getenv("BACKTEST_TIMEFRAME", "1m"),
         backtest_data_source=os.getenv("BACKTEST_DATA_SOURCE", "csv"),
-        backtest_start_date=os.getenv("BACKTEST_START_DATE", "2023-01-01"),
-        backtest_end_date=os.getenv("BACKTEST_END_DATE", "2024-06-01"),
+        backtest_start_date=datetime(2023, 1, 1),
+        backtest_end_date=datetime(2024, 6, 1),
         discord_webhook_url=os.getenv("DISCORD_WEBHOOK_URL"),
         database_url=os.getenv("DATABASE_URL", "sqlite:///data/arb_bot.db"),
         port=int(os.getenv("PORT", "8080"))
